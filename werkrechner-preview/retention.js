@@ -1,6 +1,6 @@
 (function(){
 'use strict';
-let shown=false,toast=null,sheet=null;
+let sheet=null;
 const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(/Macintosh/.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
 const isAndroid=/Android/i.test(navigator.userAgent);
 const isMac=/Mac/i.test(navigator.platform||navigator.userAgent);
@@ -9,8 +9,7 @@ function ensureSheet(){if(sheet)return sheet;sheet=document.createElement('aside
 function openSheet(){ensureSheet().classList.add('open')}
 function closeSheet(){sheet?.classList.remove('open')}
 function injectStrip(){const home=location.hash===''||location.hash==='#home';if(!home)return;const root=document.querySelector('#app');if(!root||root.querySelector('.wr-return-strip'))return;const target=root.querySelector('.wr-command')||root.querySelector('.trust-strip')||root.querySelector('.hero');if(!target)return;const strip=document.createElement('section');strip.className='wr-return-strip';strip.innerHTML=`<div><strong>WerkRechner öfter zur Hand?</strong><p>Speichere dir die Seite einmal ab. Dann bist du beim nächsten Aufmaß, Angebot oder Baustellenbericht mit einem Tipp wieder hier.</p></div><div class="wr-return-actions"><button class="btn" type="button" data-wr-save>WerkRechner merken</button><button class="wr-save-link" type="button" data-wr-share-inline>Link teilen</button></div>`;target.insertAdjacentElement('afterend',strip);strip.querySelector('[data-wr-save]').onclick=openSheet;strip.querySelector('[data-wr-share-inline]').onclick=async()=>{if(navigator.share){try{await navigator.share({title:'WerkRechner',text:'Kostenlose Rechner und Baustellen-Tools',url:location.href})}catch{}}else openSheet()}}
-function showToast(){if(shown||document.querySelector('.wr-return-toast'))return;shown=true;toast=document.createElement('div');toast.className='wr-return-toast';toast.innerHTML=`<div><strong>WerkRechner später wieder brauchen?</strong><p><a href="#" data-wr-toast-save>Jetzt merken</a> – dauert nur einen Moment.</p></div><button type="button" aria-label="Hinweis schließen">×</button>`;document.body.appendChild(toast);toast.querySelector('button').onclick=()=>toast.remove();toast.querySelector('[data-wr-toast-save]').onclick=e=>{e.preventDefault();openSheet();toast.remove()};setTimeout(()=>toast?.remove(),12000)}
 function injectResultReturn(){const r=document.querySelector('#result:not([hidden])');if(!r||r.querySelector('.wr-result-return'))return;const box=document.createElement('div');box.className='wr-result-return';box.innerHTML=`<span>Brauchst du diesen Rechner öfter? Speichere WerkRechner direkt auf deinem Gerät.</span><button type="button">WerkRechner merken</button>`;r.appendChild(box);box.querySelector('button').onclick=openSheet}
 function refresh(){setTimeout(()=>{injectStrip();injectResultReturn()},80)}
-addEventListener('hashchange',refresh);document.addEventListener('wr:calculated',()=>{injectResultReturn();setTimeout(showToast,900)});setTimeout(()=>{injectStrip();if((location.hash===''||location.hash==='#home'))setTimeout(showToast,7000)},600);
+addEventListener('hashchange',refresh);document.addEventListener('wr:calculated',injectResultReturn);setTimeout(injectStrip,600);
 })();
