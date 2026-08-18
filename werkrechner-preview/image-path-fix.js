@@ -1,6 +1,6 @@
 (function(){
 'use strict';
-const BASE='https://raw.githubusercontent.com/TimonGuldner/Timong/master/werkrechner-preview/images/';
+const BASE='/images/';
 function fix(){
   document.querySelectorAll('img').forEach(img=>{
     const raw=img.getAttribute('src')||'';
