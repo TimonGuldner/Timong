@@ -22,7 +22,6 @@
     { "source": "/depth-v4.js", "destination": "/werkrechner-preview/depth-v4.js" },
     { "source": "/individual-tips-v5.js", "destination": "/werkrechner-preview/individual-tips-v5.js" },
     { "source": "/image-path-fix.js", "destination": "/werkrechner-preview/image-path-fix.js" },
-    { "source": "/saved-v4.js", "destination": "/werkrechner-preview/saved-v4.js" },
-    { "source": "/images/:file*", "destination": "/werkrechner-preview/images/:file*" }
+    { "source": "/saved-v4.js", "destination": "/werkrechner-preview/saved-v4.js" }
   ]
 }
