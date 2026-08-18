@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/ads.txt", "destination": "/werkrechner-preview/ads.txt" },
     { "source": "/", "destination": "/werkrechner-preview/index.html" },
     { "source": "/tools", "destination": "/werkrechner-preview/index.html" },
     { "source": "/tools/:slug", "destination": "/werkrechner-preview/index.html" },
