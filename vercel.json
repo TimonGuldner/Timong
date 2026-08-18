@@ -1,9 +1,12 @@
 {
-  "redirects": [
+  "rewrites": [
     {
       "source": "/",
-      "destination": "/werkrechner-preview/index.html",
-      "permanent": false
+      "destination": "/werkrechner-preview/index.html"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/werkrechner-preview/:path*"
     }
   ]
 }
