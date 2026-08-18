@@ -25,6 +25,7 @@
     { "source": "/app.js", "destination": "/werkrechner-preview/app.js" },
     { "source": "/pages-home.js", "destination": "/werkrechner-preview/pages-home.js" },
     { "source": "/pages-legal.js", "destination": "/werkrechner-preview/pages-legal.js" },
+    { "source": "/privacy-contact-v19.js", "destination": "/werkrechner-preview/privacy-contact-v19.js" },
     { "source": "/adsense-legal-v7.js", "destination": "/werkrechner-preview/adsense-legal-v7.js" },
     { "source": "/pages-guides-1.js", "destination": "/werkrechner-preview/pages-guides-1.js" },
     { "source": "/pages-guides-2.js", "destination": "/werkrechner-preview/pages-guides-2.js" },
