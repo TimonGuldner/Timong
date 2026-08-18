@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/werkrechner-preview/index.html",
+      "permanent": false
+    }
+  ]
+}
