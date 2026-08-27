@@ -5,6 +5,7 @@ on:
     paths:
       - 'build-static.cjs'
       - 'package.json'
+      - 'qa-runtime.cjs'
       - 'vercel.json'
       - 'werkrechner-preview/**'
       - '.github/workflows/werkrechner-static-qa.yml'
@@ -13,6 +14,7 @@ on:
     paths:
       - 'build-static.cjs'
       - 'package.json'
+      - 'qa-runtime.cjs'
       - 'vercel.json'
       - 'werkrechner-preview/**'
 
@@ -27,6 +29,7 @@ jobs:
       - name: Syntax check
         run: |
           node --check build-static.cjs
+          node --check qa-runtime.cjs
           node --check werkrechner-preview/calculator-runtime.js
           node --check werkrechner-preview/site-runtime.js
       - name: Build static site
@@ -50,6 +53,8 @@ jobs:
           ! grep -R 'seo-route-bootstrap.js\|seo-production.js\|cookie-consent-v8.js' dist --include='*.html'
           grep -q 'pub-3157675368154523' dist/ads.txt
           grep -q 'https://www.werkrechner.de/sitemap.xml' dist/robots.txt
+      - name: Runtime contact and privacy QA
+        run: node qa-runtime.cjs
       - name: Upload generated site for audit
         uses: actions/upload-artifact@v4
         with:
