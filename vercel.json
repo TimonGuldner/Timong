@@ -1,45 +1,17 @@
 {
-  "rewrites": [
-    { "source": "/ads.txt", "destination": "/werkrechner-preview/ads.txt" },
-    { "source": "/", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/tools", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/tools/:slug", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/ratgeber", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/ratgeber/:slug", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/ueber-uns", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/kontakt", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/methodik", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/impressum", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/datenschutz", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/datenschutz-einstellungen", "destination": "/werkrechner-preview/index.html" },
-    { "source": "/styles.css", "destination": "/werkrechner-preview/styles.css" },
-    { "source": "/preview-extra.css", "destination": "/werkrechner-preview/preview-extra.css" },
-    { "source": "/ux.css", "destination": "/werkrechner-preview/ux.css" },
-    { "source": "/quality-v2.css", "destination": "/werkrechner-preview/quality-v2.css" },
-    { "source": "/lowvalue-v3.css", "destination": "/werkrechner-preview/lowvalue-v3.css" },
-    { "source": "/desktop-v6.css", "destination": "/werkrechner-preview/desktop-v6.css" },
-    { "source": "/cookie-consent-v8.css", "destination": "/werkrechner-preview/cookie-consent-v8.css" },
-    { "source": "/cookie-consent-v8.js", "destination": "/werkrechner-preview/cookie-consent-v8.js" },
-    { "source": "/seo-route-bootstrap.js", "destination": "/werkrechner-preview/seo-route-bootstrap.js" },
-    { "source": "/seo-production.js", "destination": "/werkrechner-preview/seo-production.js" },
-    { "source": "/app.js", "destination": "/werkrechner-preview/app.js" },
-    { "source": "/pages-home.js", "destination": "/werkrechner-preview/pages-home.js" },
-    { "source": "/pages-legal.js", "destination": "/werkrechner-preview/pages-legal.js" },
-    { "source": "/privacy-contact-v19.js", "destination": "/werkrechner-preview/privacy-contact-v19.js" },
-    { "source": "/adsense-legal-v7.js", "destination": "/werkrechner-preview/adsense-legal-v7.js" },
-    { "source": "/pages-guides-1.js", "destination": "/werkrechner-preview/pages-guides-1.js" },
-    { "source": "/pages-guides-2.js", "destination": "/werkrechner-preview/pages-guides-2.js" },
-    { "source": "/pages-guides-3.js", "destination": "/werkrechner-preview/pages-guides-3.js" },
-    { "source": "/copy-v2.js", "destination": "/werkrechner-preview/copy-v2.js" },
-    { "source": "/enhancements.js", "destination": "/werkrechner-preview/enhancements.js" },
-    { "source": "/privacy-session.js", "destination": "/werkrechner-preview/privacy-session.js" },
-    { "source": "/ux.js", "destination": "/werkrechner-preview/ux.js" },
-    { "source": "/quality-v2.js", "destination": "/werkrechner-preview/quality-v2.js" },
-    { "source": "/retention.js", "destination": "/werkrechner-preview/retention.js" },
-    { "source": "/lowvalue-v3.js", "destination": "/werkrechner-preview/lowvalue-v3.js" },
-    { "source": "/depth-v4.js", "destination": "/werkrechner-preview/depth-v4.js" },
-    { "source": "/individual-tips-v5.js", "destination": "/werkrechner-preview/individual-tips-v5.js" },
-    { "source": "/image-path-fix.js", "destination": "/werkrechner-preview/image-path-fix.js" },
-    { "source": "/saved-v4.js", "destination": "/werkrechner-preview/saved-v4.js" }
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+      ]
+    }
   ]
 }

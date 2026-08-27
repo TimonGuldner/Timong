@@ -1,0 +1,11 @@
+{
+  "name": "werkrechner-static",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node build-static.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
