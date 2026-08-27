@@ -1,0 +1,52 @@
+name: WerkRechner Static QA
+
+on:
+  pull_request:
+    paths:
+      - 'build-static.cjs'
+      - 'package.json'
+      - 'vercel.json'
+      - 'werkrechner-preview/**'
+      - '.github/workflows/werkrechner-static-qa.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'build-static.cjs'
+      - 'package.json'
+      - 'vercel.json'
+      - 'werkrechner-preview/**'
+
+jobs:
+  build-and-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Syntax check
+        run: |
+          node --check build-static.cjs
+          node --check werkrechner-preview/calculator-runtime.js
+          node --check werkrechner-preview/site-runtime.js
+      - name: Build static site
+        run: npm run build
+      - name: Verify critical outputs
+        run: |
+          test -f dist/index.html
+          test -f dist/tools/betonrechner/index.html
+          test -f dist/tools/stundenverrechnungssatz-rechner/index.html
+          test -f dist/ratgeber/betonmenge-berechnen/index.html
+          test -f dist/methodik/index.html
+          test -f dist/ueber-uns/index.html
+          test -f dist/kontakt/index.html
+          test -f dist/impressum/index.html
+          test -f dist/datenschutz/index.html
+          test -f dist/404.html
+          grep -q 'https://www.werkrechner.de/tools/betonrechner' dist/tools/betonrechner/index.html
+          grep -q '<h1' dist/tools/betonrechner/index.html
+          ! grep -R 'href="#tool/' dist --include='*.html'
+          ! grep -R 'href="#guide/' dist --include='*.html'
+          ! grep -R 'seo-route-bootstrap.js\|seo-production.js\|cookie-consent-v8.js' dist --include='*.html'
+          grep -q 'pub-3157675368154523' dist/ads.txt
+          grep -q 'https://www.werkrechner.de/sitemap.xml' dist/robots.txt
