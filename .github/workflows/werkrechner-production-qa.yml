@@ -1,0 +1,72 @@
+name: WerkRechner Production HTTP QA
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  production-http-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Vercel production deployment
+        run: sleep 25
+      - name: Verify production HTTP status and raw HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://www.werkrechner.de"
+          routes=(
+            "/"
+            "/tools"
+            "/tools/betonrechner"
+            "/tools/fliesenrechner"
+            "/tools/stundenverrechnungssatz-rechner"
+            "/ratgeber"
+            "/ratgeber/betonmenge-berechnen"
+            "/ratgeber/stundenverrechnungssatz-handwerk"
+            "/methodik"
+            "/ueber-uns"
+            "/kontakt"
+            "/impressum"
+            "/datenschutz"
+            "/ads.txt"
+            "/robots.txt"
+            "/sitemap.xml"
+          )
+          for route in "${routes[@]}"; do
+            code=$(curl -L -sS -o /tmp/wr-response -w '%{http_code}' "$BASE$route")
+            test "$code" = "200" || { echo "$route returned $code"; exit 1; }
+            echo "PASS 200 $route"
+          done
+
+          code=$(curl -L -sS -o /tmp/wr-404 -w '%{http_code}' "$BASE/tools/this-tool-does-not-exist-qa")
+          test "$code" = "404" || { echo "Unknown route returned $code instead of 404"; exit 1; }
+          grep -q 'Seite nicht gefunden' /tmp/wr-404
+          echo "PASS 404 unknown route"
+
+          curl -L -fsS "$BASE/tools/betonrechner" > /tmp/beton.html
+          grep -q '<title>Betonrechner: Betonmenge in m³ berechnen | WerkRechner</title>' /tmp/beton.html
+          grep -q '<link rel="canonical" href="https://www.werkrechner.de/tools/betonrechner">' /tmp/beton.html
+          grep -q '<h1>Betonrechner</h1>' /tmp/beton.html
+          grep -q 'So entsteht das Ergebnis' /tmp/beton.html
+          grep -q 'Konkretes Beispiel' /tmp/beton.html
+          grep -q 'Typische Fehler vermeiden' /tmp/beton.html
+          ! grep -q 'href="#tool/' /tmp/beton.html
+          ! grep -q 'seo-route-bootstrap.js\|seo-production.js\|cookie-consent-v8.js\|app.js' /tmp/beton.html
+          ! grep -q 'pagead2.googlesyndication.com\|adsbygoogle\|google-analytics.com\|googletagmanager.com' /tmp/beton.html
+
+          curl -L -fsS "$BASE/ratgeber/betonmenge-berechnen" > /tmp/guide.html
+          grep -q 'Konkretes Praxisbeispiel' /tmp/guide.html
+          grep -q 'Typische Fehler vermeiden' /tmp/guide.html
+          grep -q 'Betreiber: Timon Guldner' /tmp/guide.html
+          grep -q 'href="/tools/betonrechner"' /tmp/guide.html
+
+          curl -L -fsS "$BASE/ads.txt" | grep -q 'google.com, pub-3157675368154523, DIRECT, f08c47fec0942fa0'
+          curl -L -fsS "$BASE/robots.txt" | grep -q 'Sitemap: https://www.werkrechner.de/sitemap.xml'
+          curl -L -fsS "$BASE/sitemap.xml" > /tmp/sitemap.xml
+          grep -q '<loc>https://www.werkrechner.de/tools/betonrechner</loc>' /tmp/sitemap.xml
+          grep -q '<loc>https://www.werkrechner.de/ratgeber/betonmenge-berechnen</loc>' /tmp/sitemap.xml
+          ! grep -q '#' /tmp/sitemap.xml
+
+          echo "Production HTTP QA PASS"
