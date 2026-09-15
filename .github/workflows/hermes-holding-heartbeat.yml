@@ -60,19 +60,34 @@ jobs:
           set -euo pipefail
           docker pull nousresearch/hermes-agent:latest
 
-      - name: Run autonomous Hermes CEO
+      - name: Run autonomous Hermes CEO through live free pool
         id: hermes
         shell: bash
         run: |
           set -uo pipefail
           mkdir -p "$RUNNER_TEMP/hermes-home"
-          MODELS=("deepseek-v4-flash-free" "mimo-v2.5-free" "nemotron-3.5-lightning-free")
-          OK=false
           PROMPT=$(cat holding-runtime/runtime/run_prompt.txt)
+
+          # Query the provider's live catalogue every heartbeat. Free slugs rotate.
+          curl -fsSL https://opencode.ai/zen/v1/models -o holding-runtime/runtime/opencode-models.json || true
+          mapfile -t LIVE_FREE < <(jq -r '.data[]?.id | select(endswith("-free"))' holding-runtime/runtime/opencode-models.json 2>/dev/null || true)
+          PREFERRED=("nemotron-3-ultra-free" "mimo-v2.5-free" "hy3-free" "nemotron-3.5-lightning-free" "laguna-s-2.1-free" "ling-3.0-tiny-free" "deepseek-v4-flash-free")
+
+          MODELS=()
+          for m in "${PREFERRED[@]}" "${LIVE_FREE[@]}"; do
+            [ -n "$m" ] || continue
+            seen=false
+            for x in "${MODELS[@]}"; do [ "$x" = "$m" ] && seen=true && break; done
+            [ "$seen" = true ] || MODELS+=("$m")
+          done
+
+          VALID=false
+          rm -f /tmp/hermes-result.json /tmp/hermes-usage.json /tmp/hermes-model.txt
+
           for MODEL in "${MODELS[@]}"; do
-            echo "Trying free Hermes model: $MODEL"
-            rm -f holding-runtime/runtime/raw.txt holding-runtime/runtime/usage.json holding-runtime/runtime/hermes-stderr.txt
-            if docker run --rm \
+            echo "Trying zero-cost Hermes model: $MODEL"
+            rm -f holding-runtime/runtime/raw.txt holding-runtime/runtime/result.json holding-runtime/runtime/usage.json holding-runtime/runtime/hermes-stderr.txt
+            docker run --rm \
               -v "$PWD:/workspace" \
               -v "$RUNNER_TEMP/hermes-home:/opt/data" \
               -w /workspace \
@@ -82,41 +97,60 @@ jobs:
               --model "$MODEL" \
               --usage-file /workspace/holding-runtime/runtime/usage.json \
               --yolo \
-              > holding-runtime/runtime/raw.txt 2> holding-runtime/runtime/hermes-stderr.txt; then
-              OK=true
-              echo "$MODEL" > holding-runtime/runtime/model.txt
+              > holding-runtime/runtime/raw.txt 2> holding-runtime/runtime/hermes-stderr.txt || true
+
+            python3 holding-runtime/normalize_result.py holding-runtime/runtime/raw.txt holding-runtime/runtime/result.json >/dev/null || true
+            if python3 - <<'PY'
+          import json, sys
+          from pathlib import Path
+          try:
+              o=json.loads(Path('holding-runtime/runtime/result.json').read_text(encoding='utf-8'))
+          except Exception:
+              sys.exit(1)
+          # Normalizer uses this exact summary when no valid JSON was returned.
+          invalid = o.get('summary') == 'Hermes returned non-JSON output; no autonomous decision was accepted.'
+          sys.exit(1 if invalid else 0)
+          PY
+            then
+              VALID=true
+              cp holding-runtime/runtime/result.json /tmp/hermes-result.json
+              if [ -f holding-runtime/runtime/usage.json ]; then cp holding-runtime/runtime/usage.json /tmp/hermes-usage.json; else echo '{}' >/tmp/hermes-usage.json; fi
+              printf '%s\n' "$MODEL" >/tmp/hermes-model.txt
+              echo "Accepted valid CEO result from $MODEL"
               break
             else
-              echo "Free model $MODEL failed; trying fallback."
+              echo "Model $MODEL did not return a valid CEO result; trying next free model."
             fi
           done
-          if [ "$OK" != "true" ]; then
+
+          if [ "$VALID" != "true" ]; then
             python3 - <<'PY'
           import json
           from pathlib import Path
-          err = Path('holding-runtime/runtime/hermes-stderr.txt').read_text(errors='replace')[-1800:] if Path('holding-runtime/runtime/hermes-stderr.txt').exists() else 'All free models failed.'
-          Path('holding-runtime/runtime/raw.txt').write_text(json.dumps({
-            'status':'BLOCKED','summary':'All configured zero-cost Hermes model fallbacks failed.',
-            'decision':None,'learning':None,
-            'actions':[{'type':'NOOP','description':'Heartbeat failed safely without paid fallback.','artifact':None,'requires_owner':False}],
-            'next_heartbeat_focus':'Retry zero-cost providers on the next scheduled heartbeat.',
+          err = Path('holding-runtime/runtime/hermes-stderr.txt').read_text(errors='replace')[-1600:] if Path('holding-runtime/runtime/hermes-stderr.txt').exists() else 'No free model produced a valid result.'
+          obj={
+            'status':'BLOCKED',
+            'summary':'No currently available zero-cost Hermes model produced a valid CEO result.',
+            'decision':None,
+            'learning':None,
+            'actions':[{'type':'NOOP','description':'Heartbeat exhausted the live free-model pool and failed safely without paid fallback.','artifact':None,'requires_owner':False}],
+            'next_heartbeat_focus':'Retry the refreshed zero-cost model catalogue on the next scheduled heartbeat.',
             'runtime_error':err
-          }), encoding='utf-8')
+          }
+          Path('/tmp/hermes-result.json').write_text(json.dumps(obj),encoding='utf-8')
+          Path('/tmp/hermes-usage.json').write_text('{}',encoding='utf-8')
+          Path('/tmp/hermes-model.txt').write_text('free-pool-exhausted\n',encoding='utf-8')
           PY
           fi
-          echo "ok=$OK" >> "$GITHUB_OUTPUT"
+          echo "valid=$VALID" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Normalize and validate CEO result
+      - name: Validate accepted CEO result
         shell: bash
         run: |
           set -euo pipefail
-          python3 holding-runtime/normalize_result.py holding-runtime/runtime/raw.txt holding-runtime/runtime/result.json
-          jq -e '.status and .summary and (.actions|type=="array")' holding-runtime/runtime/result.json >/dev/null
-          cp holding-runtime/runtime/result.json /tmp/hermes-result.json
-          if [ -f holding-runtime/runtime/usage.json ]; then cp holding-runtime/runtime/usage.json /tmp/hermes-usage.json; else echo '{}' >/tmp/hermes-usage.json; fi
-          if [ -f holding-runtime/runtime/model.txt ]; then cp holding-runtime/runtime/model.txt /tmp/hermes-model.txt; else echo 'free-fallback-pool' >/tmp/hermes-model.txt; fi
-          cat holding-runtime/runtime/result.json
+          jq -e '.status and .summary and (.actions|type=="array")' /tmp/hermes-result.json >/dev/null
+          cat /tmp/hermes-result.json
 
       - name: Enforce write sandbox
         shell: bash
@@ -167,27 +201,22 @@ jobs:
           python3 - <<'PY'
           import json
           from pathlib import Path
-          ok = '${{ steps.hermes.outputs.ok }}' == 'true'
-          result_path = Path('/tmp/hermes-result.json')
-          usage_path = Path('/tmp/hermes-usage.json')
+          result_path=Path('/tmp/hermes-result.json')
           if result_path.exists():
-              result = json.loads(result_path.read_text(encoding='utf-8'))
+              result=json.loads(result_path.read_text(encoding='utf-8'))
           else:
-              result = {
-                'status':'BLOCKED','summary':'Heartbeat did not reach result normalization.',
-                'decision':None,'learning':None,
-                'actions':[{'type':'NOOP','description':'Heartbeat failed before a validated result was available.','artifact':None,'requires_owner':False}],
-                'next_heartbeat_focus':'Retry the zero-cost runtime on the next heartbeat.'
-              }
+              result={'status':'BLOCKED','summary':'Heartbeat failed before a validated result was available.','decision':None,'learning':None,'actions':[{'type':'NOOP','description':'Runtime failed safely.','artifact':None,'requires_owner':False}],'next_heartbeat_focus':'Retry next heartbeat.'}
           try:
-              usage = json.loads(usage_path.read_text(encoding='utf-8')) if usage_path.exists() else {}
+              usage=json.loads(Path('/tmp/hermes-usage.json').read_text(encoding='utf-8')) if Path('/tmp/hermes-usage.json').exists() else {}
           except Exception:
-              usage = {}
+              usage={}
+          model=Path('/tmp/hermes-model.txt').read_text().strip() if Path('/tmp/hermes-model.txt').exists() else 'unknown-free-model'
           usage.setdefault('provider','opencode-free')
-          usage.setdefault('model', Path('/tmp/hermes-model.txt').read_text().strip() if Path('/tmp/hermes-model.txt').exists() else 'free-fallback-pool')
+          usage.setdefault('model',model)
           usage.setdefault('estimated_cost_usd',0)
-          payload = {'success': ok, 'provider':'opencode-free', 'result':result, 'usage':usage}
-          Path('/tmp/hermes-report/report.json').write_text(json.dumps(payload), encoding='utf-8')
+          success = ('${{ steps.hermes.outputs.valid }}' == 'true') and result.get('status') in ('SUCCEEDED','BLOCKED')
+          payload={'success':success,'provider':'opencode-free','model':model,'result':result,'usage':usage}
+          Path('/tmp/hermes-report/report.json').write_text(json.dumps(payload),encoding='utf-8')
           PY
 
       - name: Record heartbeat in Supabase
