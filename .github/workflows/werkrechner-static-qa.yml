@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'build-static.cjs'
+      - 'generate-business-tools.cjs'
       - 'package.json'
       - 'qa-runtime.cjs'
       - 'qa-final.cjs'
@@ -14,11 +15,13 @@ on:
     branches: [master]
     paths:
       - 'build-static.cjs'
+      - 'generate-business-tools.cjs'
       - 'package.json'
       - 'qa-runtime.cjs'
       - 'qa-final.cjs'
       - 'vercel.json'
       - 'werkrechner-preview/**'
+      - '.github/workflows/werkrechner-static-qa.yml'
 
 jobs:
   build-and-qa:
@@ -31,6 +34,7 @@ jobs:
       - name: Syntax check
         run: |
           node --check build-static.cjs
+          node --check generate-business-tools.cjs
           node --check qa-runtime.cjs
           node --check qa-final.cjs
           node --check werkrechner-preview/calculator-runtime.js
@@ -48,9 +52,13 @@ jobs:
           test -f dist/kontakt/index.html
           test -f dist/impressum/index.html
           test -f dist/datenschutz/index.html
+          test -f dist/business-tools/index.html
+          test -f dist/business-tools/e-rechnung-readiness/index.html
+          test -f dist/business-tools/e-rechnung-pflicht-2027/index.html
           test -f dist/404.html
           grep -q 'https://www.werkrechner.de/tools/betonrechner' dist/tools/betonrechner/index.html
           grep -q '<h1' dist/tools/betonrechner/index.html
+          grep -q 'https://www.werkrechner.de/business-tools/e-rechnung-readiness' dist/business-tools/e-rechnung-readiness/index.html
           ! grep -R 'href="#tool/' dist --include='*.html'
           ! grep -R 'href="#guide/' dist --include='*.html'
           ! grep -R 'seo-route-bootstrap.js\|seo-production.js\|cookie-consent-v8.js' dist --include='*.html'
