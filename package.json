@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "build": "node build-static.cjs"
+    "build": "node build-static.cjs && node generate-business-tools.cjs --target=dist --base=https://www.werkrechner.de/business-tools"
   },
   "engines": {
     "node": ">=20"

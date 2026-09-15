@@ -5,6 +5,7 @@ on:
     branches: ["master"]
     paths:
       - "werkrechner-preview/**"
+      - "generate-business-tools.cjs"
       - ".github/workflows/werkrechner-pages.yml"
   workflow_dispatch:
 
@@ -26,6 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Generate Hermes business tools
+        run: node generate-business-tools.cjs --target=werkrechner-preview --base=https://timonguldner.github.io/Timong/business-tools
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
