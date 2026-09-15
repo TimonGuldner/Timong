@@ -68,7 +68,6 @@ jobs:
           mkdir -p holding-runtime/runtime/hermes-home
           MODELS=("deepseek-v4-flash-free" "mimo-v2.5-free" "nemotron-3.5-lightning-free")
           OK=false
-          LAST_ERROR=""
           for MODEL in "${MODELS[@]}"; do
             echo "Trying free Hermes model: $MODEL"
             rm -f holding-runtime/runtime/raw.txt holding-runtime/runtime/usage.json holding-runtime/runtime/hermes-stderr.txt
@@ -87,7 +86,6 @@ jobs:
               echo "$MODEL" > holding-runtime/runtime/model.txt
               break
             else
-              LAST_ERROR=$(tail -c 2000 holding-runtime/runtime/hermes-stderr.txt || true)
               echo "Free model $MODEL failed; trying fallback."
             fi
           done
@@ -114,6 +112,9 @@ jobs:
           set -euo pipefail
           python3 holding-runtime/normalize_result.py holding-runtime/runtime/raw.txt holding-runtime/runtime/result.json
           jq -e '.status and .summary and (.actions|type=="array")' holding-runtime/runtime/result.json >/dev/null
+          cp holding-runtime/runtime/result.json /tmp/hermes-result.json
+          if [ -f holding-runtime/runtime/usage.json ]; then cp holding-runtime/runtime/usage.json /tmp/hermes-usage.json; else echo '{}' >/tmp/hermes-usage.json; fi
+          if [ -f holding-runtime/runtime/model.txt ]; then cp holding-runtime/runtime/model.txt /tmp/hermes-model.txt; else echo 'free-fallback-pool' >/tmp/hermes-model.txt; fi
           cat holding-runtime/runtime/result.json
 
       - name: Enforce write sandbox
@@ -121,7 +122,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import os, shutil, subprocess
+          import shutil, subprocess
           from pathlib import Path
           allowed = ('holding-runtime/work/', 'holding-runtime/memory/')
           out = subprocess.check_output(['git','status','--porcelain','-z'])
@@ -156,33 +157,35 @@ jobs:
             echo "No safe persistent artifact changes this heartbeat."
           fi
 
-      - name: Rebuild report payload
+      - name: Build authenticated report payload
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          # Runtime files are intentionally not persisted. Recreate the accepted result from the job log path if needed.
           mkdir -p /tmp/hermes-report
-          git show HEAD:holding-runtime/memory/MEMORY.md >/tmp/hermes-report/memory.txt || true
-          # If result was removed by sandbox cleanup, record a compact heartbeat status.
           python3 - <<'PY'
-          import json, os
+          import json
           from pathlib import Path
           ok = '${{ steps.hermes.outputs.ok }}' == 'true'
-          payload = {
-            'success': ok,
-            'provider': 'opencode-free',
-            'model': 'free-fallback-pool',
-            'result': {
-              'status': 'SUCCEEDED' if ok else 'BLOCKED',
-              'summary': 'Hermes hourly heartbeat executed; detailed safe artifacts, when produced, are persisted in the repository.',
-              'decision': None,
-              'learning': None,
-              'actions': [{'type':'ANALYSIS' if ok else 'NOOP','description':'Hourly zero-cost CEO heartbeat executed.','artifact':None,'requires_owner':False}],
-              'next_heartbeat_focus': 'Read fresh holding metrics and continue the highest-leverage zero-cost evidence step.'
-            },
-            'usage': {'provider':'opencode-free','model':'free-fallback-pool','estimated_cost_usd':0,'input_tokens':0,'output_tokens':0}
-          }
+          result_path = Path('/tmp/hermes-result.json')
+          usage_path = Path('/tmp/hermes-usage.json')
+          if result_path.exists():
+              result = json.loads(result_path.read_text(encoding='utf-8'))
+          else:
+              result = {
+                'status':'BLOCKED','summary':'Heartbeat did not reach result normalization.',
+                'decision':None,'learning':None,
+                'actions':[{'type':'NOOP','description':'Heartbeat failed before a validated result was available.','artifact':None,'requires_owner':False}],
+                'next_heartbeat_focus':'Retry the zero-cost runtime on the next heartbeat.'
+              }
+          try:
+              usage = json.loads(usage_path.read_text(encoding='utf-8')) if usage_path.exists() else {}
+          except Exception:
+              usage = {}
+          usage.setdefault('provider','opencode-free')
+          usage.setdefault('model', Path('/tmp/hermes-model.txt').read_text().strip() if Path('/tmp/hermes-model.txt').exists() else 'free-fallback-pool')
+          usage.setdefault('estimated_cost_usd',0)
+          payload = {'success': ok, 'provider':'opencode-free', 'result':result, 'usage':usage}
           Path('/tmp/hermes-report/report.json').write_text(json.dumps(payload), encoding='utf-8')
           PY
 
