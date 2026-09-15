@@ -17,21 +17,22 @@ const toolSlugs = ['e-rechnung-readiness','grantradar-de','tenderradar-handwerk'
 function mkdir(p){ fs.mkdirSync(p,{recursive:true}); }
 function writeRoute(slug, html){ const dir = slug ? path.join(TARGET,'business-tools',slug) : path.join(TARGET,'business-tools'); mkdir(dir); fs.writeFileSync(path.join(dir,'index.html'),html); }
 async function get(url){ const r=await fetch(url,{headers:{'user-agent':'WerkRechner-BusinessTools-Build/1.0'}}); if(!r.ok) throw new Error(`${r.status} ${url}`); return r.text(); }
-function transform(html){
+function transform(html, canonical){
   let s=String(html);
   s=s.split(ORGANIC).join(BASE).split(VALIDATION).join(BASE);
   s=s.split(`${BASE}/datenschutz/`).join('https://www.werkrechner.de/datenschutz');
   s=s.split(`${BASE}/impressum/`).join('https://www.werkrechner.de/impressum');
   s=s.replace(/<meta name="robots"[^>]*>/i,'<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">');
-  s=s.replace(/(<link rel="canonical" href="[^"]+)\/(">)/i,'$1$2');
+  if(/<link rel="canonical" href="[^"]+"/i.test(s)) s=s.replace(/<link rel="canonical" href="[^"]+"/i,`<link rel="canonical" href="${canonical}"`);
+  else s=s.replace('</head>',`<link rel="canonical" href="${canonical}"></head>`);
   s=s.replace('<main class="wrap">','<main id="content" class="wrap">');
   return s;
 }
 async function main(){
   mkdir(path.join(TARGET,'business-tools'));
-  writeRoute('', transform(await get(`${ORGANIC}/`)));
-  for(const slug of organicSlugs) writeRoute(slug, transform(await get(`${ORGANIC}/${slug}/`)));
-  for(const slug of toolSlugs) writeRoute(slug, transform(await get(`${VALIDATION}/${slug}/`)));
+  writeRoute('', transform(await get(`${ORGANIC}/`), BASE));
+  for(const slug of organicSlugs) writeRoute(slug, transform(await get(`${ORGANIC}/${slug}/`), `${BASE}/${slug}`));
+  for(const slug of toolSlugs) writeRoute(slug, transform(await get(`${VALIDATION}/${slug}/`), `${BASE}/${slug}`));
   fs.writeFileSync(path.join(TARGET,'business-tools',`${INDEX_KEY}.txt`),INDEX_KEY+'\n');
   const urls=['',...toolSlugs,...organicSlugs].map(slug=>`${BASE}${slug?'/'+slug:''}`);
   const sm=`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u=>`  <url><loc>${u}</loc><lastmod>2026-09-15</lastmod></url>`).join('\n')}\n</urlset>\n`;
@@ -43,7 +44,7 @@ async function main(){
     if(additions) root=root.replace('</urlset>',`${additions}\n</urlset>`);
     fs.writeFileSync(rootSitemap,root);
   }
-  for(const slug of organicSlugs){ const f=path.join(TARGET,'business-tools',slug,'index.html'); const h=fs.readFileSync(f,'utf8'); if(!/<title>[^<]+<\/title>/i.test(h)||!/<h1[^>]*>/i.test(h)) throw new Error(`QA failed: ${slug}`); }
+  for(const slug of [...organicSlugs,...toolSlugs]){ const f=path.join(TARGET,'business-tools',slug,'index.html'); const h=fs.readFileSync(f,'utf8'); if(!/<title>[^<]+<\/title>/i.test(h)||!/<h1[^>]*>/i.test(h)||!/<link rel="canonical" href="[^"]+"/i.test(h)) throw new Error(`QA failed: ${slug}`); }
   console.log(`Business Tools build complete: ${1+organicSlugs.length+toolSlugs.length} routes at ${BASE}`);
 }
 main().catch(e=>{console.error(e);process.exit(1)});
