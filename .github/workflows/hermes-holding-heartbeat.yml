@@ -20,7 +20,7 @@ concurrency:
 jobs:
   heartbeat:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 12
     steps:
       - name: Checkout holding workspace
         uses: actions/checkout@v4
@@ -70,7 +70,7 @@ jobs:
 
           curl -fsSL --max-time 10 https://opencode.ai/zen/v1/models -o holding-runtime/runtime/opencode-models.json || true
           mapfile -t LIVE_FREE < <(jq -r '.data[]?.id | select(endswith("-free"))' holding-runtime/runtime/opencode-models.json 2>/dev/null || true)
-          PREFERRED=("nemotron-3-ultra-free" "mimo-v2.5-free" "hy3-free" "nemotron-3.5-lightning-free" "laguna-s-2.1-free" "ling-3.0-tiny-free" "deepseek-v4-flash-free")
+          PREFERRED=("mimo-v2.5-free" "hy3-free" "ling-3.0-tiny-free" "laguna-s-2.1-free" "nemotron-3.5-lightning-free" "nemotron-3-ultra-free" "deepseek-v4-flash-free")
 
           MODELS=()
           for m in "${PREFERRED[@]}" "${LIVE_FREE[@]}"; do
@@ -86,7 +86,7 @@ jobs:
           for MODEL in "${MODELS[@]}"; do
             echo "Trying zero-cost Hermes model: $MODEL"
             rm -f holding-runtime/runtime/raw.txt holding-runtime/runtime/result.json holding-runtime/runtime/usage.json holding-runtime/runtime/hermes-stderr.txt
-            timeout --signal=TERM --kill-after=10s 75s docker run --rm \
+            timeout --signal=TERM --kill-after=5s 30s docker run --rm \
               -v "$PWD:/workspace" \
               -v "$RUNNER_TEMP/hermes-home:/opt/data" \
               -w /workspace \
@@ -106,11 +106,11 @@ jobs:
               o=json.loads(Path('holding-runtime/runtime/result.json').read_text(encoding='utf-8'))
           except Exception:
               sys.exit(1)
-          invalid_summaries={
+          invalid={
               'Hermes returned non-JSON output; no autonomous decision was accepted.',
               'No currently available zero-cost Hermes model produced a valid CEO result.'
           }
-          valid = o.get('summary') not in invalid_summaries and o.get('status') in ('SUCCEEDED','BLOCKED') and isinstance(o.get('actions'),list)
+          valid=o.get('summary') not in invalid and o.get('status') in ('SUCCEEDED','BLOCKED') and isinstance(o.get('actions'),list)
           sys.exit(0 if valid else 1)
           PY
             then
@@ -121,7 +121,7 @@ jobs:
               echo "Accepted valid CEO result from $MODEL"
               break
             else
-              echo "Model $MODEL did not return a valid CEO result within the allowed time; trying next free model."
+              echo "Model $MODEL failed or timed out; trying next free model."
             fi
           done
 
@@ -129,16 +129,8 @@ jobs:
             python3 - <<'PY'
           import json
           from pathlib import Path
-          err = Path('holding-runtime/runtime/hermes-stderr.txt').read_text(errors='replace')[-1600:] if Path('holding-runtime/runtime/hermes-stderr.txt').exists() else 'No free model produced a valid result.'
-          obj={
-            'status':'BLOCKED',
-            'summary':'No currently available zero-cost Hermes model produced a valid CEO result.',
-            'decision':None,
-            'learning':None,
-            'actions':[{'type':'NOOP','description':'Heartbeat exhausted the live free-model pool and failed safely without paid fallback.','artifact':None,'requires_owner':False}],
-            'next_heartbeat_focus':'Retry the refreshed zero-cost model catalogue on the next scheduled heartbeat.',
-            'runtime_error':err
-          }
+          err=Path('holding-runtime/runtime/hermes-stderr.txt').read_text(errors='replace')[-1600:] if Path('holding-runtime/runtime/hermes-stderr.txt').exists() else 'No free model produced a valid result.'
+          obj={'status':'BLOCKED','summary':'No currently available zero-cost Hermes model produced a valid CEO result.','decision':None,'learning':None,'actions':[{'type':'NOOP','description':'Heartbeat exhausted the live free-model pool and failed safely without paid fallback.','artifact':None,'requires_owner':False}],'next_heartbeat_focus':'Retry the refreshed zero-cost model catalogue on the next scheduled heartbeat.','runtime_error':err}
           Path('/tmp/hermes-result.json').write_text(json.dumps(obj),encoding='utf-8')
           Path('/tmp/hermes-usage.json').write_text('{}',encoding='utf-8')
           Path('/tmp/hermes-model.txt').write_text('free-pool-exhausted\n',encoding='utf-8')
@@ -161,22 +153,17 @@ jobs:
           python3 - <<'PY'
           import shutil, subprocess
           from pathlib import Path
-          allowed = ('holding-runtime/work/', 'holding-runtime/memory/')
-          out = subprocess.check_output(['git','status','--porcelain','-z'])
+          allowed=('holding-runtime/work/','holding-runtime/memory/')
+          out=subprocess.check_output(['git','status','--porcelain','-z'])
           for raw in out.split(b'\0'):
               if not raw: continue
-              s = raw.decode('utf-8','replace')
-              path = s[3:]
-              if ' -> ' in path: path = path.split(' -> ',1)[1]
-              if path.startswith(allowed):
-                  continue
-              p = Path(path)
-              tracked = subprocess.run(['git','ls-files','--error-unmatch','--',path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-              if tracked:
-                  subprocess.run(['git','restore','--source=HEAD','--staged','--worktree','--',path], check=False)
-              elif p.exists():
-                  if p.is_dir(): shutil.rmtree(p)
-                  else: p.unlink()
+              s=raw.decode('utf-8','replace'); path=s[3:]
+              if ' -> ' in path: path=path.split(' -> ',1)[1]
+              if path.startswith(allowed): continue
+              p=Path(path)
+              tracked=subprocess.run(['git','ls-files','--error-unmatch','--',path],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
+              if tracked: subprocess.run(['git','restore','--source=HEAD','--staged','--worktree','--',path],check=False)
+              elif p.exists(): shutil.rmtree(p) if p.is_dir() else p.unlink()
           PY
           rm -rf holding-runtime/runtime
 
@@ -203,21 +190,13 @@ jobs:
           python3 - <<'PY'
           import json
           from pathlib import Path
-          result_path=Path('/tmp/hermes-result.json')
-          if result_path.exists():
-              result=json.loads(result_path.read_text(encoding='utf-8'))
-          else:
-              result={'status':'BLOCKED','summary':'Heartbeat failed before a validated result was available.','decision':None,'learning':None,'actions':[{'type':'NOOP','description':'Runtime failed safely.','artifact':None,'requires_owner':False}],'next_heartbeat_focus':'Retry next heartbeat.'}
-          try:
-              usage=json.loads(Path('/tmp/hermes-usage.json').read_text(encoding='utf-8')) if Path('/tmp/hermes-usage.json').exists() else {}
-          except Exception:
-              usage={}
+          p=Path('/tmp/hermes-result.json')
+          result=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {'status':'BLOCKED','summary':'Heartbeat failed before a validated result was available.','decision':None,'learning':None,'actions':[{'type':'NOOP','description':'Runtime failed safely.','artifact':None,'requires_owner':False}],'next_heartbeat_focus':'Retry next heartbeat.'}
+          try: usage=json.loads(Path('/tmp/hermes-usage.json').read_text(encoding='utf-8')) if Path('/tmp/hermes-usage.json').exists() else {}
+          except Exception: usage={}
           model=Path('/tmp/hermes-model.txt').read_text().strip() if Path('/tmp/hermes-model.txt').exists() else 'unknown-free-model'
-          usage.setdefault('provider','opencode-free')
-          usage.setdefault('model',model)
-          usage.setdefault('estimated_cost_usd',0)
-          success = ('${{ steps.hermes.outputs.valid }}' == 'true')
-          payload={'success':success,'provider':'opencode-free','model':model,'result':result,'usage':usage}
+          usage.setdefault('provider','opencode-free'); usage.setdefault('model',model); usage.setdefault('estimated_cost_usd',0)
+          payload={'success':'${{ steps.hermes.outputs.valid }}'=='true','provider':'opencode-free','model':model,'result':result,'usage':usage}
           Path('/tmp/hermes-report/report.json').write_text(json.dumps(payload),encoding='utf-8')
           PY
 
