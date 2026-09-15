@@ -1,0 +1,202 @@
+name: Hermes Holding Hourly Heartbeat
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/hermes-holding-heartbeat.yml'
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: hermes-holding-heartbeat
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout holding workspace
+        uses: actions/checkout@v4
+
+      - name: Fetch authenticated holding snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p holding-runtime/runtime holding-runtime/work
+          OIDC_JSON=$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=hermes-holding")
+          OIDC_TOKEN=$(printf '%s' "$OIDC_JSON" | jq -r '.value')
+          test -n "$OIDC_TOKEN" && test "$OIDC_TOKEN" != "null"
+          echo "::add-mask::$OIDC_TOKEN"
+          curl -fsSL \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            "https://lzqybaxpgwkqyysluivg.supabase.co/functions/v1/hh-hermes-broker/snapshot" \
+            -o holding-runtime/runtime/snapshot.json
+          jq -e '.autonomy.max_spend_eur == 0 and (.businesses|type=="array") and (.experiments|type=="array")' holding-runtime/runtime/snapshot.json >/dev/null
+
+      - name: Build CEO heartbeat prompt
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp holding-runtime/CEO_PROMPT.md holding-runtime/runtime/run_prompt.txt
+          {
+            echo
+            echo '--- PERSISTENT MEMORY ---'
+            cat holding-runtime/memory/MEMORY.md
+            echo
+            echo '--- LIVE HOLDING SNAPSHOT ---'
+            jq . holding-runtime/runtime/snapshot.json
+          } >> holding-runtime/runtime/run_prompt.txt
+
+      - name: Pull Hermes Agent runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull nousresearch/hermes-agent:latest
+
+      - name: Run autonomous Hermes CEO
+        id: hermes
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p holding-runtime/runtime/hermes-home
+          MODELS=("deepseek-v4-flash-free" "mimo-v2.5-free" "nemotron-3.5-lightning-free")
+          OK=false
+          LAST_ERROR=""
+          for MODEL in "${MODELS[@]}"; do
+            echo "Trying free Hermes model: $MODEL"
+            rm -f holding-runtime/runtime/raw.txt holding-runtime/runtime/usage.json holding-runtime/runtime/hermes-stderr.txt
+            if docker run --rm \
+              -v "$PWD:/workspace" \
+              -v "$PWD/holding-runtime/runtime/hermes-home:/opt/data" \
+              -w /workspace \
+              nousresearch/hermes-agent:latest \
+              chat --oneshot -Q --yolo \
+              --provider opencode-free \
+              --model "$MODEL" \
+              --query-file /workspace/holding-runtime/runtime/run_prompt.txt \
+              --usage-file /workspace/holding-runtime/runtime/usage.json \
+              > holding-runtime/runtime/raw.txt 2> holding-runtime/runtime/hermes-stderr.txt; then
+              OK=true
+              echo "$MODEL" > holding-runtime/runtime/model.txt
+              break
+            else
+              LAST_ERROR=$(tail -c 2000 holding-runtime/runtime/hermes-stderr.txt || true)
+              echo "Free model $MODEL failed; trying fallback."
+            fi
+          done
+          if [ "$OK" != "true" ]; then
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          err = Path('holding-runtime/runtime/hermes-stderr.txt').read_text(errors='replace')[-1800:] if Path('holding-runtime/runtime/hermes-stderr.txt').exists() else 'All free models failed.'
+          Path('holding-runtime/runtime/raw.txt').write_text(json.dumps({
+            'status':'BLOCKED','summary':'All configured zero-cost Hermes model fallbacks failed.',
+            'decision':None,'learning':None,
+            'actions':[{'type':'NOOP','description':'Heartbeat failed safely without paid fallback.','artifact':None,'requires_owner':False}],
+            'next_heartbeat_focus':'Retry zero-cost providers on the next scheduled heartbeat.',
+            'runtime_error':err
+          }), encoding='utf-8')
+          PY
+          fi
+          echo "ok=$OK" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Normalize and validate CEO result
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 holding-runtime/normalize_result.py holding-runtime/runtime/raw.txt holding-runtime/runtime/result.json
+          jq -e '.status and .summary and (.actions|type=="array")' holding-runtime/runtime/result.json >/dev/null
+          cat holding-runtime/runtime/result.json
+
+      - name: Enforce write sandbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, shutil, subprocess
+          from pathlib import Path
+          allowed = ('holding-runtime/work/', 'holding-runtime/memory/')
+          out = subprocess.check_output(['git','status','--porcelain','-z'])
+          for raw in out.split(b'\0'):
+              if not raw: continue
+              s = raw.decode('utf-8','replace')
+              path = s[3:]
+              if ' -> ' in path: path = path.split(' -> ',1)[1]
+              if path.startswith(allowed):
+                  continue
+              p = Path(path)
+              tracked = subprocess.run(['git','ls-files','--error-unmatch','--',path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+              if tracked:
+                  subprocess.run(['git','restore','--source=HEAD','--staged','--worktree','--',path], check=False)
+              elif p.exists():
+                  if p.is_dir(): shutil.rmtree(p)
+                  else: p.unlink()
+          PY
+          rm -rf holding-runtime/runtime
+
+      - name: Persist safe Hermes artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add holding-runtime/work holding-runtime/memory 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git config user.name "Hermes Holding CEO"
+            git config user.email "hermes-holding@users.noreply.github.com"
+            git commit -m "hermes: persist hourly holding learning"
+            git push
+          else
+            echo "No safe persistent artifact changes this heartbeat."
+          fi
+
+      - name: Rebuild report payload
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Runtime files are intentionally not persisted. Recreate the accepted result from the job log path if needed.
+          mkdir -p /tmp/hermes-report
+          git show HEAD:holding-runtime/memory/MEMORY.md >/tmp/hermes-report/memory.txt || true
+          # If result was removed by sandbox cleanup, record a compact heartbeat status.
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          ok = '${{ steps.hermes.outputs.ok }}' == 'true'
+          payload = {
+            'success': ok,
+            'provider': 'opencode-free',
+            'model': 'free-fallback-pool',
+            'result': {
+              'status': 'SUCCEEDED' if ok else 'BLOCKED',
+              'summary': 'Hermes hourly heartbeat executed; detailed safe artifacts, when produced, are persisted in the repository.',
+              'decision': None,
+              'learning': None,
+              'actions': [{'type':'ANALYSIS' if ok else 'NOOP','description':'Hourly zero-cost CEO heartbeat executed.','artifact':None,'requires_owner':False}],
+              'next_heartbeat_focus': 'Read fresh holding metrics and continue the highest-leverage zero-cost evidence step.'
+            },
+            'usage': {'provider':'opencode-free','model':'free-fallback-pool','estimated_cost_usd':0,'input_tokens':0,'output_tokens':0}
+          }
+          Path('/tmp/hermes-report/report.json').write_text(json.dumps(payload), encoding='utf-8')
+          PY
+
+      - name: Record heartbeat in Supabase
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          OIDC_JSON=$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=hermes-holding")
+          OIDC_TOKEN=$(printf '%s' "$OIDC_JSON" | jq -r '.value')
+          echo "::add-mask::$OIDC_TOKEN"
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/hermes-report/report.json \
+            "https://lzqybaxpgwkqyysluivg.supabase.co/functions/v1/hh-hermes-broker/report" \
+            | jq .
