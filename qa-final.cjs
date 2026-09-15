@@ -26,7 +26,7 @@ for(const file of htmlFiles){
   assert(!descs.has(desc),`${route}: duplicate description with ${descs.get(desc)}`);descs.set(desc,route);
   assert.strictEqual((html.match(/<h1[ >]/gi)||[]).length,1,`${route}: must contain one H1`);
   assert(/<meta name="viewport" content="width=device-width,initial-scale=1">/i.test(html),`${route}: viewport missing`);
-  assert(/<main id="content">[\s\S]{300,}<\/main>/i.test(html),`${route}: insufficient initial HTML content`);
+  assert(/<main id="content">[\s\S]{300,}<\/main>/i.test(html)||/<main id="content" class="wrap">[\s\S]{300,}<\/main>/i.test(html),`${route}: insufficient initial HTML content`);
   assert(!/href=["']#(?:tool|guide)\//i.test(html),`${route}: hash tool/guide link remains`);
   assert(!/seo-route-bootstrap\.js|seo-production\.js|cookie-consent-v8\.js|app\.js|enhancements\.js/i.test(html),`${route}: legacy SPA runtime referenced`);
   assert(!/pagead2\.googlesyndication\.com|adsbygoogle|google-analytics\.com|googletagmanager\.com/i.test(html),`${route}: ad/tracking runtime must remain disabled during review`);
@@ -34,7 +34,7 @@ for(const file of htmlFiles){
   assert(textContent(html).length>250,`${route}: page too thin in initial HTML`);
 }
 
-assert.strictEqual(htmlFiles.length,45,`expected 45 generated index routes, got ${htmlFiles.length}`);
+assert.strictEqual(htmlFiles.length,67,`expected 67 generated index routes, got ${htmlFiles.length}`);
 const toolFiles=htmlFiles.filter(f=>routeFor(f).startsWith('/tools/') && routeFor(f)!=='/tools');
 const guideFiles=htmlFiles.filter(f=>routeFor(f).startsWith('/ratgeber/') && routeFor(f)!=='/ratgeber');
 assert.strictEqual(toolFiles.length,28,'expected 28 tool pages');
@@ -54,7 +54,6 @@ for(const file of guideFiles){
   assert(/href="\/tools\/[^"]+"/.test(html),`${route}: missing canonical tool link`);
 }
 
-// Resolve all internal href/src assets in generated HTML.
 function targetExists(url){
   const clean=url.split('#')[0].split('?')[0];
   if(!clean||clean==='/')return fs.existsSync(path.join(ROOT,'index.html'));
@@ -75,7 +74,7 @@ for(const file of htmlFiles){
 const sitemap=read('sitemap.xml');
 const locs=[...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m=>m[1]);
 assert.strictEqual(new Set(locs).size,locs.length,'sitemap contains duplicate URLs');
-assert.strictEqual(locs.length,44,'sitemap should contain 44 indexable routes');
+assert.strictEqual(locs.length,66,'sitemap should contain 66 indexable routes');
 for(const file of htmlFiles){
   const route=routeFor(file);if(route==='/datenschutz-einstellungen')continue;
   const url=ORIGIN+(route==='/'?'':route);assert(locs.includes(url),`sitemap missing ${url}`);

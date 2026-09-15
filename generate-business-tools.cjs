@@ -23,6 +23,8 @@ function transform(html){
   s=s.split(`${BASE}/datenschutz/`).join('https://www.werkrechner.de/datenschutz');
   s=s.split(`${BASE}/impressum/`).join('https://www.werkrechner.de/impressum');
   s=s.replace(/<meta name="robots"[^>]*>/i,'<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">');
+  s=s.replace(/(<link rel="canonical" href="[^"]+)\/(">)/i,'$1$2');
+  s=s.replace('<main class="wrap">','<main id="content" class="wrap">');
   return s;
 }
 async function main(){
@@ -31,7 +33,7 @@ async function main(){
   for(const slug of organicSlugs) writeRoute(slug, transform(await get(`${ORGANIC}/${slug}/`)));
   for(const slug of toolSlugs) writeRoute(slug, transform(await get(`${VALIDATION}/${slug}/`)));
   fs.writeFileSync(path.join(TARGET,'business-tools',`${INDEX_KEY}.txt`),INDEX_KEY+'\n');
-  const urls=['',...toolSlugs,...organicSlugs].map(slug=>`${BASE}${slug?'/'+slug+'/':'/'}`);
+  const urls=['',...toolSlugs,...organicSlugs].map(slug=>`${BASE}${slug?'/'+slug:''}`);
   const sm=`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u=>`  <url><loc>${u}</loc><lastmod>2026-09-15</lastmod></url>`).join('\n')}\n</urlset>\n`;
   fs.writeFileSync(path.join(TARGET,'business-tools','sitemap.xml'),sm);
   const rootSitemap=path.join(TARGET,'sitemap.xml');
