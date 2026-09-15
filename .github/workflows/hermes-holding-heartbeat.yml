@@ -15,12 +15,12 @@ permissions:
 
 concurrency:
   group: hermes-holding-heartbeat
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   heartbeat:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Checkout holding workspace
         uses: actions/checkout@v4
@@ -68,8 +68,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/hermes-home"
           PROMPT=$(cat holding-runtime/runtime/run_prompt.txt)
 
-          # Query the provider's live catalogue every heartbeat. Free slugs rotate.
-          curl -fsSL https://opencode.ai/zen/v1/models -o holding-runtime/runtime/opencode-models.json || true
+          curl -fsSL --max-time 10 https://opencode.ai/zen/v1/models -o holding-runtime/runtime/opencode-models.json || true
           mapfile -t LIVE_FREE < <(jq -r '.data[]?.id | select(endswith("-free"))' holding-runtime/runtime/opencode-models.json 2>/dev/null || true)
           PREFERRED=("nemotron-3-ultra-free" "mimo-v2.5-free" "hy3-free" "nemotron-3.5-lightning-free" "laguna-s-2.1-free" "ling-3.0-tiny-free" "deepseek-v4-flash-free")
 
@@ -87,7 +86,7 @@ jobs:
           for MODEL in "${MODELS[@]}"; do
             echo "Trying zero-cost Hermes model: $MODEL"
             rm -f holding-runtime/runtime/raw.txt holding-runtime/runtime/result.json holding-runtime/runtime/usage.json holding-runtime/runtime/hermes-stderr.txt
-            docker run --rm \
+            timeout --signal=TERM --kill-after=10s 75s docker run --rm \
               -v "$PWD:/workspace" \
               -v "$RUNNER_TEMP/hermes-home:/opt/data" \
               -w /workspace \
@@ -107,9 +106,12 @@ jobs:
               o=json.loads(Path('holding-runtime/runtime/result.json').read_text(encoding='utf-8'))
           except Exception:
               sys.exit(1)
-          # Normalizer uses this exact summary when no valid JSON was returned.
-          invalid = o.get('summary') == 'Hermes returned non-JSON output; no autonomous decision was accepted.'
-          sys.exit(1 if invalid else 0)
+          invalid_summaries={
+              'Hermes returned non-JSON output; no autonomous decision was accepted.',
+              'No currently available zero-cost Hermes model produced a valid CEO result.'
+          }
+          valid = o.get('summary') not in invalid_summaries and o.get('status') in ('SUCCEEDED','BLOCKED') and isinstance(o.get('actions'),list)
+          sys.exit(0 if valid else 1)
           PY
             then
               VALID=true
@@ -119,7 +121,7 @@ jobs:
               echo "Accepted valid CEO result from $MODEL"
               break
             else
-              echo "Model $MODEL did not return a valid CEO result; trying next free model."
+              echo "Model $MODEL did not return a valid CEO result within the allowed time; trying next free model."
             fi
           done
 
@@ -214,7 +216,7 @@ jobs:
           usage.setdefault('provider','opencode-free')
           usage.setdefault('model',model)
           usage.setdefault('estimated_cost_usd',0)
-          success = ('${{ steps.hermes.outputs.valid }}' == 'true') and result.get('status') in ('SUCCEEDED','BLOCKED')
+          success = ('${{ steps.hermes.outputs.valid }}' == 'true')
           payload={'success':success,'provider':'opencode-free','model':model,'result':result,'usage':usage}
           Path('/tmp/hermes-report/report.json').write_text(json.dumps(payload),encoding='utf-8')
           PY
