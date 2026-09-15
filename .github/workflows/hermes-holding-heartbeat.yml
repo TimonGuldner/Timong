@@ -65,22 +65,23 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          mkdir -p holding-runtime/runtime/hermes-home
+          mkdir -p "$RUNNER_TEMP/hermes-home"
           MODELS=("deepseek-v4-flash-free" "mimo-v2.5-free" "nemotron-3.5-lightning-free")
           OK=false
+          PROMPT=$(cat holding-runtime/runtime/run_prompt.txt)
           for MODEL in "${MODELS[@]}"; do
             echo "Trying free Hermes model: $MODEL"
             rm -f holding-runtime/runtime/raw.txt holding-runtime/runtime/usage.json holding-runtime/runtime/hermes-stderr.txt
             if docker run --rm \
               -v "$PWD:/workspace" \
-              -v "$PWD/holding-runtime/runtime/hermes-home:/opt/data" \
+              -v "$RUNNER_TEMP/hermes-home:/opt/data" \
               -w /workspace \
               nousresearch/hermes-agent:latest \
-              chat --oneshot -Q --yolo \
+              -z "$PROMPT" \
               --provider opencode-free \
               --model "$MODEL" \
-              --query-file /workspace/holding-runtime/runtime/run_prompt.txt \
               --usage-file /workspace/holding-runtime/runtime/usage.json \
+              --yolo \
               > holding-runtime/runtime/raw.txt 2> holding-runtime/runtime/hermes-stderr.txt; then
               OK=true
               echo "$MODEL" > holding-runtime/runtime/model.txt
